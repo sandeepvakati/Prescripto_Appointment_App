@@ -9,14 +9,20 @@ const AppContextProvider = (props) => {
   const backendUrl = import.meta.env.VITE_BACKEND_URL;
 
   const [doctors, setDoctors] = useState([]);
-  const [token, setToken] = useState(
-    localStorage.getItem("token") ? localStorage.getItem("token") : false
-  );
-  const [userData, setUserData] = useState(false);
+  const [token, setToken] = useState(localStorage.getItem("token") || false);
+  const [userData, setUserData] = useState(null);
+
+  useEffect(() => {
+    const savedUser = localStorage.getItem("user");
+    if (savedUser) {
+      setUserData(JSON.parse(savedUser));
+    }
+  }, []);
 
   const getDoctorsData = async () => {
     try {
       const { data } = await axios.get(backendUrl + "/api/doctor/list");
+      console.log("Doctors fetched:", data.doctors);
       if (data.success) {
         setDoctors(data.doctors);
       } else {
@@ -24,7 +30,7 @@ const AppContextProvider = (props) => {
       }
     } catch (error) {
       console.log(error);
-      toast.error(error.message);
+      toast.error(error.message || "Error fetching doctors");
     }
   };
 
@@ -33,20 +39,21 @@ const AppContextProvider = (props) => {
       const { data } = await axios.get(backendUrl + "/api/user/get-profile", {
         headers: { Authorization: `Bearer ${token}` },
       });
-
       if (data.success) {
         setUserData(data.userData);
+        localStorage.setItem("user", JSON.stringify(data.userData));
       } else {
         toast.error(data.message);
       }
     } catch (error) {
       console.log(error);
-      toast.error(error.message);
+      toast.error(error.message || "Error loading user profile");
     }
   };
 
   const value = {
     doctors,
+    getDoctorsData,
     currencySymbol,
     token,
     setToken,
@@ -64,7 +71,7 @@ const AppContextProvider = (props) => {
     if (token) {
       loadUserProfileData();
     } else {
-      setUserData(false);
+      setUserData(null);
     }
   }, [token]);
 
