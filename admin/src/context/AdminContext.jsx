@@ -1,3 +1,4 @@
+// admin/src/context/AdminContext.jsx
 import React, { createContext, useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { toast } from "react-toastify";
@@ -5,11 +6,11 @@ import { toast } from "react-toastify";
 export const AdminContext = createContext();
 
 const AdminContextProvider = ({ children }) => {
-  // fallback url in case env var is not set
-  const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
+  // fallback url in case env var is not set (use port 4000 which your backend uses)
+  const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000";
 
-  // initialize token from localStorage safely
-  const [aToken, setAToken] = useState(() => localStorage.getItem("aToken") || "");
+  // initialize token from localStorage safely (null when absent)
+  const [aToken, setAToken] = useState(() => localStorage.getItem("aToken") || null);
   const [doctors, setDoctors] = useState([]);
   const [appointments, setAppointments] = useState([]);
   const [dashData, setDashData] = useState(null);
@@ -24,9 +25,11 @@ const AdminContextProvider = ({ children }) => {
   // helper to create headers consistently
   const getAuthHeaders = useCallback(() => {
     const headers = { "Content-Type": "application/json" };
-    // Send atoken header in lowercase to match backend expectation
     if (aToken) {
+      // send both standard Authorization and legacy atoken header for compatibility
+      headers.Authorization = `Bearer ${aToken}`;
       headers.atoken = aToken;
+      headers.aToken = aToken;
     }
     return headers;
   }, [aToken]);
@@ -35,6 +38,7 @@ const AdminContextProvider = ({ children }) => {
     setLoading(true);
     try {
       const url = `${backendUrl.replace(/\/$/, "")}/api/admin/all-doctors`;
+      // If backend actually uses GET, change to axios.get(url, { headers: getAuthHeaders() })
       const { data } = await axios.post(url, {}, { headers: getAuthHeaders() });
 
       if (data?.success) {
@@ -43,9 +47,11 @@ const AdminContextProvider = ({ children }) => {
       } else {
         toast.error(data?.message || "Failed to fetch doctors");
       }
+      return data;
     } catch (error) {
       console.error("getAllDoctors error:", error);
       toast.error(error?.response?.data?.message || error.message || "Request failed");
+      return { success: false, error };
     } finally {
       setLoading(false);
     }
@@ -61,13 +67,16 @@ const AdminContextProvider = ({ children }) => {
 
         if (data?.success) {
           toast.success(data.message || "Availability changed");
+          // update local doctors by re-fetch
           await getAllDoctors();
         } else {
           toast.error(data?.message || "Failed to change availability");
         }
+        return data;
       } catch (error) {
         console.error("changeAvailability error:", error);
         toast.error(error?.response?.data?.message || error.message || "Request failed");
+        return { success: false, error };
       } finally {
         setLoading(false);
       }
@@ -87,9 +96,11 @@ const AdminContextProvider = ({ children }) => {
       } else {
         toast.error(data?.message || "Failed to fetch appointments");
       }
+      return data;
     } catch (error) {
       console.error("getAllAppointments error:", error);
       toast.error(error?.response?.data?.message || error.message || "Request failed");
+      return { success: false, error };
     } finally {
       setLoading(false);
     }
@@ -97,7 +108,10 @@ const AdminContextProvider = ({ children }) => {
 
   const cancelAppointment = useCallback(
     async (appointmentId) => {
-      if (!appointmentId) return toast.error("Appointment id missing");
+      if (!appointmentId) {
+        toast.error("Appointment id missing");
+        return { success: false, message: "Appointment id missing" };
+      }
       setLoading(true);
       try {
         const url = `${backendUrl.replace(/\/$/, "")}/api/admin/cancel-appointment`;
@@ -105,13 +119,23 @@ const AdminContextProvider = ({ children }) => {
 
         if (data?.success) {
           toast.success(data.message || "Appointment cancelled");
-          await getAllAppointments();
+
+          // Optimistically update local state if backend returns updated appointment
+          if (data.updatedAppointment) {
+            setAppointments((prev) => prev.map((a) => (a._id === appointmentId ? { ...a, ...data.updatedAppointment } : a)));
+          } else {
+            // Otherwise, set cancelled flag locally and also re-fetch for correctness
+            setAppointments((prev) => prev.map((a) => (a._id === appointmentId ? { ...a, cancelled: true } : a)));
+            // optional: await getAllAppointments();
+          }
         } else {
           toast.error(data?.message || "Failed to cancel appointment");
         }
+        return data;
       } catch (error) {
         console.error("cancelAppointment error:", error);
         toast.error(error?.response?.data?.message || error.message || "Request failed");
+        return { success: false, error };
       } finally {
         setLoading(false);
       }
@@ -121,7 +145,10 @@ const AdminContextProvider = ({ children }) => {
 
   const completeAppointment = useCallback(
     async (appointmentId) => {
-      if (!appointmentId) return toast.error("Appointment id missing");
+      if (!appointmentId) {
+        toast.error("Appointment id missing");
+        return { success: false, message: "Appointment id missing" };
+      }
       setLoading(true);
       try {
         const url = `${backendUrl.replace(/\/$/, "")}/api/admin/appointment-complete`;
@@ -129,13 +156,23 @@ const AdminContextProvider = ({ children }) => {
 
         if (data?.success) {
           toast.success(data.message || "Appointment completed");
-          await getAllAppointments();
+
+          // Optimistic local update if server returns updatedAppointment
+          if (data.updatedAppointment) {
+            setAppointments((prev) => prev.map((a) => (a._id === appointmentId ? { ...a, ...data.updatedAppointment } : a)));
+          } else {
+            // fallback: set isCompleted flag locally
+            setAppointments((prev) => prev.map((a) => (a._id === appointmentId ? { ...a, isCompleted: true } : a)));
+            // optional: await getAllAppointments();
+          }
         } else {
           toast.error(data?.message || "Failed to complete appointment");
         }
+        return data;
       } catch (error) {
         console.error("completeAppointment error:", error);
         toast.error(error?.response?.data?.message || error.message || "Request failed");
+        return { success: false, error };
       } finally {
         setLoading(false);
       }
@@ -155,9 +192,11 @@ const AdminContextProvider = ({ children }) => {
       } else {
         toast.error(data?.message || "Failed to fetch dashboard data");
       }
+      return data;
     } catch (error) {
       console.error("getDashData error:", error);
       toast.error(error?.response?.data?.message || error.message || "Request failed");
+      return { success: false, error };
     } finally {
       setLoading(false);
     }

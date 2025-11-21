@@ -5,89 +5,119 @@ import { AppContext } from "../../context/AppContext";
 import { assets } from "../../assets/assets";
 
 const AllAppointments = () => {
-  // from AdminContext (assumes these functions/states exist there)
   const {
     aToken,
     appointments,
     getAllAppointments,
-    cancelAppointment,      // should call backend & update context state (or we update local state)
-    completeAppointment,    // should call backend & update context state (or we update local state)
+    cancelAppointment,
+    completeAppointment,
   } = useContext(AdminContext);
 
-  // helpers from AppContext
   const { calculateAge, slotDateFormat, currency } = useContext(AppContext);
 
-  // local copy of appointments so we can optimistically update UI
   const [itemsList, setItemsList] = useState([]);
 
-  // sync local list when context appointments change
   useEffect(() => {
     if (appointments && Array.isArray(appointments)) {
-      setItemsList([...appointments]); // copy to avoid mutation
+      setItemsList([...appointments]);
     }
   }, [appointments]);
 
-  // initial fetch when token present
   useEffect(() => {
     if (aToken) {
       getAllAppointments();
     }
   }, [aToken, getAllAppointments]);
 
-  // robust check for completed status
-  const isCompletedFlag = (item) => {
-    return (
-      item?.isCompleted === true ||
-      item?.completed === true ||
-      item?.status === "completed" ||
-      item?.isCompleted === "true" ||
-      item?.completed === "true" ||
-      item?.status === "Completed"
-    );
-  };
+  const isCompletedFlag = (item) =>
+    item?.isCompleted === true ||
+    item?.completed === true ||
+    item?.status === "completed" ||
+    item?.isCompleted === "true" ||
+    item?.completed === "true" ||
+    item?.status === "Completed";
 
-  // robust check for cancelled status
-  const isCancelledFlag = (item) => {
-    return (
-      item?.cancelled === true ||
-      item?.isCancelled === true ||
-      item?.status === "cancelled" ||
-      item?.status === "Cancelled" ||
-      item?.cancelled === "true"
-    );
-  };
+  const isCancelledFlag = (item) =>
+    item?.cancelled === true ||
+    item?.isCancelled === true ||
+    item?.status === "cancelled" ||
+    item?.status === "Cancelled" ||
+    item?.cancelled === "true";
 
-  // Handler when user clicks complete
+  // handle completion: call context function then update UI using server response (if present)
   const handleComplete = async (id) => {
     try {
-      // call context action (which should call backend)
-      await completeAppointment(id);
+      // call context action - expect it to return server response (preferably the updated appointment)
+      const res = await completeAppointment(id);
 
-      // optimistic update of local UI
-      setItemsList((prev) =>
-        prev.map((a) => (a._id === id ? { ...a, isCompleted: true } : a))
-      );
+      // Debugging: log what the backend/context returned
+      console.log("completeAppointment response:", res);
+
+      // If the context returns an updated appointment object:
+      if (res && res.updatedAppointment) {
+        setItemsList((prev) =>
+          prev.map((a) =>
+            a._id === id ? { ...a, ...res.updatedAppointment } : a
+          )
+        );
+        return;
+      }
+
+      // If context returns the updated status only or a success boolean, optimistically update:
+      if (res && (res.success === true || res.updated === true)) {
+        setItemsList((prev) =>
+          prev.map((a) => (a._id === id ? { ...a, isCompleted: true } : a))
+        );
+        return;
+      }
+
+      // Fallback: re-fetch all appointments if available
+      if (typeof getAllAppointments === "function") {
+        await getAllAppointments();
+      } else {
+        setItemsList((prev) =>
+          prev.map((a) => (a._id === id ? { ...a, isCompleted: true } : a))
+        );
+      }
     } catch (err) {
       console.error("Complete appointment error:", err);
-      // optionally show a toast here
     }
   };
 
-  // Handler when user clicks cancel
   const handleCancel = async (id) => {
     try {
-      await cancelAppointment(id);
+      const res = await cancelAppointment(id);
+      console.log("cancelAppointment response:", res);
 
-      // optimistic update of local UI
-      setItemsList((prev) =>
-        prev.map((a) => (a._id === id ? { ...a, cancelled: true } : a))
-      );
+      // same approach as complete: apply server response if available
+      if (res && res.updatedAppointment) {
+        setItemsList((prev) =>
+          prev.map((a) =>
+            a._id === id ? { ...a, ...res.updatedAppointment } : a
+          )
+        );
+        return;
+      }
+
+      if (res && (res.success === true || res.updated === true)) {
+        setItemsList((prev) =>
+          prev.map((a) => (a._id === id ? { ...a, cancelled: true } : a))
+        );
+        return;
+      }
+
+      if (typeof getAllAppointments === "function") {
+        await getAllAppointments();
+      } else {
+        setItemsList((prev) =>
+          prev.map((a) => (a._id === id ? { ...a, cancelled: true } : a))
+        );
+      }
     } catch (err) {
       console.error("Cancel appointment error:", err);
     }
   };
 
-  // small helper for safe image src
   const safeImage = (url) => url || assets.profile_placeholder || "";
 
   return (
@@ -106,16 +136,13 @@ const AllAppointments = () => {
         </div>
 
         {[...itemsList].reverse().map((item, index) => {
-          // debug inspect one item if needed:
-          // console.log(item);
-
           const completed = isCompletedFlag(item);
           const cancelled = isCancelledFlag(item);
 
           return (
             <div
-              className="flex flex-wrap justify-between max-sm:gap-2 sm:grid sm:grid-cols-[0.5fr_3fr_1fr_3fr_3fr_1fr_1fr] items-center text-gray-500 py-3 px-6 border-b border-zinc-300 hover:bg-gray-50"
               key={item._id || index}
+              className="flex flex-wrap justify-between max-sm:gap-2 sm:grid sm:grid-cols-[0.5fr_3fr_1fr_3fr_3fr_1fr_1fr] items-center text-gray-500 py-3 px-6 border-b border-zinc-300 hover:bg-gray-50"
             >
               <p className="max-sm:hidden">{index + 1}</p>
 
@@ -156,16 +183,21 @@ const AllAppointments = () => {
                 <p className="text-green-500 text-xs font-medium">Completed</p>
               ) : (
                 <div className="flex gap-2">
+                  {/* Disable the icons if the action is already in progress or the item is completed/cancelled */}
                   <img
                     onClick={() => handleComplete(item._id)}
-                    className="w-10 cursor-pointer hover:opacity-70"
+                    className={`w-10 cursor-pointer hover:opacity-70 ${
+                      completed || cancelled ? "opacity-40 pointer-events-none" : ""
+                    }`}
                     src={assets.tick_icon}
                     alt="Complete"
                     title="Complete Appointment"
                   />
                   <img
                     onClick={() => handleCancel(item._id)}
-                    className="w-10 cursor-pointer hover:opacity-70"
+                    className={`w-10 cursor-pointer hover:opacity-70 ${
+                      completed || cancelled ? "opacity-40 pointer-events-none" : ""
+                    }`}
                     src={assets.cancel_icon}
                     alt="Cancel"
                     title="Cancel Appointment"
