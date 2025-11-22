@@ -30,7 +30,9 @@ const formatAppointment = (appt) => {
     amount: appt.amount,
     cancelled: !!appt.cancelled,
     isCompleted: !!appt.isCompleted,
-    status: appt.status ?? (appt.isCompleted ? "completed" : appt.cancelled ? "cancelled" : "pending"),
+    status:
+      appt.status ??
+      (appt.isCompleted ? "completed" : appt.cancelled ? "cancelled" : "pending"),
     completedAt: appt.completedAt ?? null,
     createdAt: appt.createdAt ?? appt.date ?? null,
     userData: userObj,
@@ -119,7 +121,9 @@ const addDoctor = async (req, res) => {
     const newDoctor = new doctorModel(doctorData);
     await newDoctor.save();
 
-    return res.status(201).json({ success: true, message: "Doctor Added", doctor: { _id: newDoctor._id, name: newDoctor.name } });
+    return res
+      .status(201)
+      .json({ success: true, message: "Doctor Added", doctor: { _id: newDoctor._id, name: newDoctor.name } });
   } catch (error) {
     console.error("addDoctor error:", error.stack || error);
     return res.status(500).json({ success: false, message: error.message || "Server error" });
@@ -202,7 +206,7 @@ const appointmentCancel = async (req, res) => {
       .populate("userId", "name image dob")
       .populate("docId", "name image speciality");
 
-    // Release doctor slot if present (keep original logic)
+    // Release doctor slot if present (keep your logic)
     const { docId, slotDate, slotTime } = appointmentData;
     if (docId) {
       const doctorData = await doctorModel.findById(docId);
@@ -274,13 +278,23 @@ const adminDashboard = async (req, res) => {
   try {
     const doctors = await doctorModel.find({});
     const users = await userModel.find({});
-    const appointments = await appointmentModel.find({});
+    const totalAppointments = await appointmentModel.countDocuments();
+
+    // fetch latest 5 appointments sorted by createdAt descending (newest first)
+    const latestRaw = await appointmentModel
+      .find({})
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .populate("userId", "name image dob")
+      .populate("docId", "name image speciality");
+
+    const latestAppointments = latestRaw.map((a) => formatAppointment(a));
 
     const dashData = {
       doctors: doctors.length,
-      appointments: appointments.length,
+      appointments: totalAppointments,
       patients: users.length,
-      latestAppointments: appointments.reverse().slice(0, 5).map((a) => formatAppointment(a)),
+      latestAppointments,
     };
 
     return res.json({ success: true, dashData });

@@ -93,9 +93,7 @@ const AllAppointments = () => {
       // If context returns the updated status only or a success boolean, optimistically update:
       if (res && (res.success === true || res.updated === true)) {
         setItemsList((prev) =>
-          prev.map((a) =>
-            a._id === id ? { ...a, isCompleted: true, __isCompleted: true } : a
-          )
+          prev.map((a) => (a._id === id ? { ...a, isCompleted: true, __isCompleted: true } : a))
         );
         return;
       }
@@ -127,9 +125,7 @@ const AllAppointments = () => {
 
       if (res && (res.success === true || res.updated === true)) {
         setItemsList((prev) =>
-          prev.map((a) =>
-            a._id === id ? { ...a, cancelled: true, __isCancelled: true } : a
-          )
+          prev.map((a) => (a._id === id ? { ...a, cancelled: true, __isCancelled: true } : a))
         );
         return;
       }
@@ -138,9 +134,7 @@ const AllAppointments = () => {
         await getAllAppointments();
       } else {
         setItemsList((prev) =>
-          prev.map((a) =>
-            a._id === id ? { ...a, cancelled: true, __isCancelled: true } : a
-          )
+          prev.map((a) => (a._id === id ? { ...a, cancelled: true, __isCancelled: true } : a))
         );
       }
     } catch (err) {
@@ -163,7 +157,7 @@ const AllAppointments = () => {
           <p>Actions</p>
         </div>
 
-        {[...itemsList].reverse().map((item, index) => {
+        {itemsList.map((item, index) => {
           const completed = isCompletedFlag(item);
           const cancelled = isCancelledFlag(item);
 
