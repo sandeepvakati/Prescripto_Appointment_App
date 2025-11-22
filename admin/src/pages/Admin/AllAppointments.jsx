@@ -17,32 +17,63 @@ const AllAppointments = () => {
 
   const [itemsList, setItemsList] = useState([]);
 
+  // Helper to normalize status values from server
+  const normalizeAppointment = (a) => {
+    const status = (a?.status ?? "").toString().toLowerCase();
+
+    const isCompleted =
+      a?.__isCompleted === true || // already normalized
+      a?.isCompleted === true ||
+      a?.isCompleted === "true" ||
+      a?.completed === true ||
+      a?.completed === "true" ||
+      status === "completed" ||
+      status === "complete";
+
+    const isCancelled =
+      a?.__isCancelled === true || // already normalized
+      a?.cancelled === true ||
+      a?.cancelled === "true" ||
+      a?.isCancelled === true ||
+      a?.isCancelled === "true" ||
+      status === "cancelled" ||
+      status === "cancel";
+
+    return { ...a, __isCompleted: !!isCompleted, __isCancelled: !!isCancelled };
+  };
+
+  // Normalize appointments whenever we receive them from context
   useEffect(() => {
     if (appointments && Array.isArray(appointments)) {
-      setItemsList([...appointments]);
+      const normalized = appointments.map((a) => normalizeAppointment(a));
+      setItemsList(normalized);
+    } else {
+      setItemsList([]);
     }
   }, [appointments]);
 
+  // Fetch appointments when token becomes available
   useEffect(() => {
-    if (aToken) {
+    if (aToken && typeof getAllAppointments === "function") {
       getAllAppointments();
     }
   }, [aToken, getAllAppointments]);
 
+  // Flag helpers prefer normalized fields
   const isCompletedFlag = (item) =>
+    item?.__isCompleted === true ||
     item?.isCompleted === true ||
     item?.completed === true ||
-    item?.status === "completed" ||
-    item?.isCompleted === "true" ||
-    item?.completed === "true" ||
-    item?.status === "Completed";
+    (item?.status ?? "").toString().toLowerCase().startsWith("complete");
 
   const isCancelledFlag = (item) =>
+    item?.__isCancelled === true ||
     item?.cancelled === true ||
     item?.isCancelled === true ||
-    item?.status === "cancelled" ||
-    item?.status === "Cancelled" ||
-    item?.cancelled === "true";
+    (item?.status ?? "").toString().toLowerCase().startsWith("cancel");
+
+  // safe image fallback
+  const safeImage = (url) => url || assets.profile_placeholder || "";
 
   // handle completion: call context function then update UI using server response (if present)
   const handleComplete = async (id) => {
@@ -50,23 +81,21 @@ const AllAppointments = () => {
       // call context action - expect it to return server response (preferably the updated appointment)
       const res = await completeAppointment(id);
 
-      // Debugging: log what the backend/context returned
       console.log("completeAppointment response:", res);
 
       // If the context returns an updated appointment object:
       if (res && res.updatedAppointment) {
-        setItemsList((prev) =>
-          prev.map((a) =>
-            a._id === id ? { ...a, ...res.updatedAppointment } : a
-          )
-        );
+        const updated = normalizeAppointment(res.updatedAppointment);
+        setItemsList((prev) => prev.map((a) => (a._id === id ? { ...a, ...updated } : a)));
         return;
       }
 
       // If context returns the updated status only or a success boolean, optimistically update:
       if (res && (res.success === true || res.updated === true)) {
         setItemsList((prev) =>
-          prev.map((a) => (a._id === id ? { ...a, isCompleted: true } : a))
+          prev.map((a) =>
+            a._id === id ? { ...a, isCompleted: true, __isCompleted: true } : a
+          )
         );
         return;
       }
@@ -76,7 +105,7 @@ const AllAppointments = () => {
         await getAllAppointments();
       } else {
         setItemsList((prev) =>
-          prev.map((a) => (a._id === id ? { ...a, isCompleted: true } : a))
+          prev.map((a) => (a._id === id ? { ...a, isCompleted: true, __isCompleted: true } : a))
         );
       }
     } catch (err) {
@@ -89,19 +118,18 @@ const AllAppointments = () => {
       const res = await cancelAppointment(id);
       console.log("cancelAppointment response:", res);
 
-      // same approach as complete: apply server response if available
+      // apply server response if available
       if (res && res.updatedAppointment) {
-        setItemsList((prev) =>
-          prev.map((a) =>
-            a._id === id ? { ...a, ...res.updatedAppointment } : a
-          )
-        );
+        const updated = normalizeAppointment(res.updatedAppointment);
+        setItemsList((prev) => prev.map((a) => (a._id === id ? { ...a, ...updated } : a)));
         return;
       }
 
       if (res && (res.success === true || res.updated === true)) {
         setItemsList((prev) =>
-          prev.map((a) => (a._id === id ? { ...a, cancelled: true } : a))
+          prev.map((a) =>
+            a._id === id ? { ...a, cancelled: true, __isCancelled: true } : a
+          )
         );
         return;
       }
@@ -110,15 +138,15 @@ const AllAppointments = () => {
         await getAllAppointments();
       } else {
         setItemsList((prev) =>
-          prev.map((a) => (a._id === id ? { ...a, cancelled: true } : a))
+          prev.map((a) =>
+            a._id === id ? { ...a, cancelled: true, __isCancelled: true } : a
+          )
         );
       }
     } catch (err) {
       console.error("Cancel appointment error:", err);
     }
   };
-
-  const safeImage = (url) => url || assets.profile_placeholder || "";
 
   return (
     <div className="w-full max-w-6xl m-5">
@@ -183,7 +211,6 @@ const AllAppointments = () => {
                 <p className="text-green-500 text-xs font-medium">Completed</p>
               ) : (
                 <div className="flex gap-2">
-                  {/* Disable the icons if the action is already in progress or the item is completed/cancelled */}
                   <img
                     onClick={() => handleComplete(item._id)}
                     className={`w-10 cursor-pointer hover:opacity-70 ${
